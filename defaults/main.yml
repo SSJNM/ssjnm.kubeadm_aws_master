@@ -1,0 +1,9 @@
+---
+# defaults file for ssjnm.kubeadm_aws_master
+
+#Default pod cidr 
+pod_cidr: 10.240.0.0/16
+
+## Using default cni layer to be flannel
+
+cni_layer_command: "kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml"

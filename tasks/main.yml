@@ -1,0 +1,126 @@
+---
+#tasks for ssjnm.kubeadm_aws_master
+
+- name: Writing Repositories for docker-ce
+  yum_repository:
+          name: docker
+          baseurl: "https://download.docker.com/linux/centos/7/x86_64/stable/"
+          gpgcheck: 0
+          description: "This contains Docker software"
+  become: true
+
+- name: Writing Repositories for Kubeadm
+  yum_repository:
+          name: Kubernetes
+          baseurl: "https://packages.cloud.google.com/yum/repos/kubernetes-el7-$basearch"
+          description: "This contains Kubernetes software"
+          gpgcheck: 1
+          gpgkey: "https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg"
+  become: true
+
+- name:  Installing needed softwares
+  package:
+          name:
+                  - iproute-tc
+                  - kubeadm
+                  - docker-ce-18.09.1-3.el7.x86_64
+          state: present
+  become: true    
+
+- name: Starting Docker services
+  service:
+          name: docker
+          state: started
+          enabled: true
+  become: true
+
+- name: Changing sysctl file for bridging (1/2)
+  sysctl:
+          name: net.bridge.bridge-nf-call-ip6tables
+          value: 1
+          sysctl_file: /etc/sysctl.d/k8s.conf          
+          state: present
+          reload: yes
+  become: true
+
+- name: Changing sysctl file for bridging (2/2)
+  sysctl:
+          name: net.bridge.bridge-nf-call-iptables
+          value: 1
+          sysctl_file: /etc/sysctl.d/k8s.conf
+          state: present
+          reload: yes
+  become: true
+
+- name: Changing the docker driver from cgroup to 
+  copy:
+          content: |
+                  {
+                    "exec-opts": ["native.cgroupdriver=systemd"]
+                  }
+          dest: /etc/docker/daemon.json
+  become: true
+
+- name: Restarting docker services
+  service:
+          name: docker
+          state: restarted
+          enabled: true
+  become: true
+
+- name: Starting the Kubelet program
+  service:
+          name: kubelet
+          state: started
+          enabled: true
+  become: true
+
+- name: Removing previous kubeadm if present
+  shell: "echo 'y' | kubeadm reset"
+  become: true
+
+- name: Running kubeadm program   
+  command: "kubeadm init --pod-network-cidr={{ pod_cidr }} --ignore-preflight-errors=Mem  --ignore-preflight-errors=Swap  --ignore-preflight-errors=NumCPU --node-name=mymaster"
+  register: master_info
+  become: true
+
+- name: Describing Kubeadm Output
+  debug:
+          var: master_info
+
+- name: Setting up kubectl for master (1/3)
+  file:
+          path: ~/.kube
+          state: directory
+  become: true 
+
+- name: Setting up kubectl for master (2/3) 
+  shell: "cp -rf /etc/kubernetes/admin.conf ~/.kube/config"
+  become: true
+
+- name: Setting up kubectl for master (3/3) 
+  shell: "chown $(id -u):$(id -g) ~/.kube/config"
+  become: true
+
+- name: Setting up the cni_layer for kubernetes cluster
+  command: "{{ cni_layer_command }}"
+  become: true
+
+- name: Creating token for joining 
+  command: "kubeadm token create --print-join-command" 
+  register: token
+  become: true
+
+- name: Debug the output of printing command 
+  debug:
+    var: token
+- name: Printing the kubeadm token to the token.txt file
+  shell: echo {{ token.stdout }} > /tmp/token.txt
+  become: true
+
+- name: Fetching the token from master
+  fetch:
+          src: /tmp/token.txt
+          dest: "{{ files_path }}token-{{ inventory_hostname }}"
+          flat: yes
+  become: true
